@@ -1,19 +1,13 @@
-#include <Foundation/Foundation.h>
-#include <SourceCodeKit/SCKSourceFile.h>
-#include <clang-c/Index.h>
+
+#import <SourceCodeKit/SCKSourceFile.h>
+#import <clang-c/Index.h>
 
 @class SCKClangIndex;
-@class NSMutableArray;
-@class NSMutableAttributedString;
 
-/**
- * SCKSourceFile implementation that uses clang to perform handle
- * [Objective-]C[++] files.
- */
+/*! SCKSourceFile implementation that uses clang to perform handle [Objective-]C[++] files. */
+
 @interface SCKClangSourceFile : SCKSourceFile
-@property (nonatomic, readonly) NSMutableDictionary *classes;
-@property (nonatomic, readonly) NSMutableDictionary *functions;
-@property (nonatomic, readonly) NSMutableDictionary *globals;
-@property (nonatomic, readonly) NSMutableDictionary *enumerations;
-@property (nonatomic, readonly) NSMutableDictionary *enumerationValues;
+
+@property (nonatomic) NSMutableDictionary *classes, *functions, *globals, 
+                                           *enumerations, *enumerationValues;
 @end

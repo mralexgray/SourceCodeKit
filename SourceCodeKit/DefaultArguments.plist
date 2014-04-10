@@ -1,0 +1,13 @@
+(
+	"-xobjective-c",
+	"-fno-strict-aliasing",
+	"-fobjc-nonfragile-abi",
+	"-fexceptions",
+	"-Wall",
+	"-fmodules",
+	"-fblocks",
+	"-I/usr/local/include",
+	"-I/Local/Library/Headers",
+	"-fconstant-string-class=NSConstantString",
+	"-fobjc-arc",
+)

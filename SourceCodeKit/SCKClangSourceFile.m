@@ -3,13 +3,13 @@
 #import <Cocoa/Cocoa.h>
 #include <time.h>
 
-//#define NSLog(...)
+#define SCOPED_STR(name, value)\
+	__attribute__((unused))\
+	__attribute__((cleanup(freestring))) CXString name ## str = value;\
+	const char __unused *name = clang_getCString(name ## str);
 
-/**
- * Converts a clang source range into an NSRange within its enclosing file.
- */
-NSRange NSRangeFromCXSourceRange(CXSourceRange sr)
-{
+/*! Converts a clang source range into an NSRange within its enclosing file. */
+NSRange NSRangeFromCXSourceRange(CXSourceRange sr)  {
 	unsigned start, end;
 	CXSourceLocation s = clang_getRangeStart(sr);
 	CXSourceLocation e = clang_getRangeEnd(sr);
@@ -21,113 +21,57 @@ NSRange NSRangeFromCXSourceRange(CXSourceRange sr)
 	}
 	return NSMakeRange(start, end - start);
 }
+static void           freestring(CXString *str)     {	clang_disposeString(*str); }
 
-static void freestring(CXString *str)
+@implementation SCKSourceLocation @synthesize file, offset;
+
+- (id) initWithClangSourceLocation:(CXSourceLocation)l 
 {
-	clang_disposeString(*str);
+	if (self != super.init ) return nil;  CXFile f;  unsigned o;
+  
+  clang_getInstantiationLocation(l, &f, 0, 0, &o);  offset = o;
+  SCOPED_STR(fileName, clang_getFileName(f));
+  file = [NSString.alloc initWithUTF8String:fileName];	return self;
 }
+- (NSString*) description   { return [NSString stringWithFormat:@"%@:%d", file, (int)offset]; }
+- (NSUInteger) hash         { return file.hash ^ offset; }
+- (BOOL) isEqual:(id)object { 
 
-#define SCOPED_STR(name, value)\
-	__attribute__((unused))\
-	__attribute__((cleanup(freestring))) CXString name ## str = value;\
-	const char *name = clang_getCString(name ## str);
-
-@implementation SCKSourceLocation
-
-@synthesize file;
-@synthesize offset;
-
-- (id)initWithClangSourceLocation:(CXSourceLocation)l
-{
-	self = [super init];
-    if (self)
-    {
-        CXFile f;
-        unsigned o;
-        clang_getInstantiationLocation(l, &f, 0, 0, &o);
-        offset = o;
-        SCOPED_STR(fileName, clang_getFileName(f));
-        file = [[NSString alloc] initWithUTF8String:fileName];
-    }
-	return self;
+  return object == self ?: ![object isKindOfClass:SCKSourceLocation.class] ? NO : 
+                            [file isEqualToString:[(SCKSourceLocation *)object file]] && 
+                            offset == [(SCKSourceLocation *)object offset]; 
 }
-
-- (NSString*)description
-{
-	return [NSString stringWithFormat:@"%@:%d", file, (int)offset];
-}
-
-- (NSUInteger)hash
-{
-    return [file hash] ^ offset;
-}
-
-- (BOOL)isEqual:(id)object
-{
-    if (object == self)
-    {
-        return YES;
-    }
-    
-    if (![object isKindOfClass:[SCKSourceLocation class]])
-    {
-        return NO;
-    }
-    
-    if ([file isEqualToString:[(SCKSourceLocation *)object file]] && offset == [(SCKSourceLocation *)object offset])
-    {
-        return YES;
-    }
-    
-    return NO;
-}
-
 @end
-
 
 @interface SCKClangIndex : NSObject
 @property (readonly) CXIndex clangIndex;
 //FIXME: We should have different default arguments for C, C++ and ObjC.
-@property ( nonatomic) NSMutableArray *defaultArguments;
+@property (nonatomic) NSMutableArray *defaultArguments;
 @end
 
-@implementation SCKClangIndex
+@implementation SCKClangIndex @synthesize clangIndex, defaultArguments;
 
-@synthesize clangIndex, defaultArguments;
+- (id)init { if (self != super.init ) return nil;
+  
+  clang_toggleCrashRecovery(0);
+  clangIndex = clang_createIndex(1, 1);
 
-- (id)init
-{
-	self = [super init];
-    if (self)
-    {
-        clang_toggleCrashRecovery(0);
-        clangIndex = clang_createIndex(1, 1);
-        
-        /*
-         * NOTE: If BuildKit becomes usable, it might be sensible to store these
-         * defaults in the BuildKit configuration and let BuildKit generate the
-         * command line switches for us.
-         */
-        NSString *plistPath = [[NSBundle bundleForClass:[SCKClangIndex class]] pathForResource:@"DefaultArguments" ofType:@"plist"];
-        
-        NSData *plistData = [NSData dataWithContentsOfFile:plistPath];
-        
-        // Load the options required to compile GNUstep apps
-        defaultArguments = [(NSArray*)[NSPropertyListSerialization propertyListFromData:plistData
-                                                                       mutabilityOption:NSPropertyListImmutable
-                                                                                 format:NULL
-                                                                       errorDescription:NULL] mutableCopy];
-    }
-	
+  /* NOTE: If BuildKit becomes usable, it might be sensible to store these defaults in the BuildKit configuration 
+      and let BuildKit generate the command line switches for us.  */
+      
+  NSString *plistPath = [[NSBundle bundleForClass:SCKClangIndex.class] pathForResource:@"DefaultArguments" ofType:@"plist"];
+  NSData *plistData   = [NSData dataWithContentsOfFile:plistPath];
 
+  // Load the options required to compile GNUstep apps
+  defaultArguments = [(NSArray*)[NSPropertyListSerialization propertyListFromData:plistData
+                                                                 mutabilityOption:NSPropertyListImmutable
+                                                                           format:NULL
+                                                                 errorDescription:NULL] mutableCopy];
 	return self;
 }
-
-- (void)dealloc
-{
+- (void)dealloc {
 	clang_disposeIndex(clangIndex);
 }
-
 @end
 
 @interface SCKClangSourceFile ()
@@ -135,25 +79,19 @@ static void freestring(CXString *str)
 @end
 
 @implementation SCKClangSourceFile {
-	/** Compiler arguments */
-	NSMutableArray *args;
-	/** Index shared between code files */
-	SCKClangIndex *idx;
-	/** libclang translation unit handle. */
-	CXTranslationUnit translationUnit;
+	NSMutableArray *args;               /** Compiler arguments */
+	SCKClangIndex *idx;                 /** Index shared between code files */
+	CXTranslationUnit translationUnit; 	/** libclang translation unit handle. */
 	CXFile file;
-}
+} @synthesize classes, functions, globals, enumerations, enumerationValues;
 
-@synthesize classes, functions, globals, enumerations, enumerationValues;
-
-static NSString *classNameFromCategory(CXCursor category)
-{
+static NSString *classNameFromCategory(CXCursor category) {
 	__block NSString *className = nil;
 	clang_visitChildrenWithBlock(category, ^ enum CXChildVisitResult (CXCursor cursor, CXCursor parent) {
         if (CXCursor_ObjCClassRef == cursor.kind)
         {
             SCOPED_STR(name, clang_getCursorSpelling(cursor));
-            className = [NSString stringWithUTF8String:name];
+            className = @(name);
             return CXChildVisit_Break;
         }
         return CXChildVisit_Continue;
@@ -161,35 +99,46 @@ static NSString *classNameFromCategory(CXCursor category)
 	return className;
 }
 
-- (void)setLocation:(SCKSourceLocation *)aLocation
-          forMethod:(NSString *)methodName
-            inClass:(NSString *)className
-           category:(NSString *)categoryName
-       isDefinition:(BOOL)isDefinition
-{
-	SCKClass *cls = [classes objectForKey:className];
+-   (id) initUsingIndex:(SCKIndex*)anIndex  {
+	if (self != super.init ) return nil;
+  idx = (SCKClangIndex*)anIndex;
+  NSAssert([idx isKindOfClass:SCKClangIndex.class], @"Initializing SCKClangSourceFile with incorrect kind of index");
+  args = idx.defaultArguments.mutableCopy;
+  classes = NSMutableDictionary.new;
+  functions = NSMutableDictionary.new;
+  globals = NSMutableDictionary.new;
+  enumerations = NSMutableDictionary.new;
+  enumerationValues = NSMutableDictionary.new; return self;
+}
+
+- (void) setLocation:(SCKSourceLocation*)aLocation
+           forMethod:(NSString*)methodName
+             inClass:(NSString*)className
+            category:(NSString*)categoryName
+        isDefinition:(BOOL)isDefinition        {
+	SCKClass *cls = classes[className];
 	if (nil == cls)
 	{
 		cls = [SCKClass new];
 		cls.name = className;
-		[classes setObject:cls forKey:className];
+		classes[className] = cls;
 	}
     
 	NSMutableDictionary *methods = cls.methods;
 	if (nil != categoryName)
 	{
-		SCKCategory *cat = [cls.categories objectForKey:categoryName];
+		SCKCategory *cat = (cls.categories)[categoryName];
 		if (nil == cat)
 		{
 			cat = [SCKCategory new];
 			cat.name = categoryName;
 			cat.parent = cls;
-			[cls.categories setObject:cat forKey:categoryName];
+			(cls.categories)[categoryName] = cat;
 		}
 		methods = cat.methods;
 	}
     
-	SCKMethod *m = [methods objectForKey:methodName];
+	SCKMethod *m = methods[methodName];
 	if (isDefinition)
 	{
 		m.definition = aLocation;
@@ -199,23 +148,23 @@ static NSString *classNameFromCategory(CXCursor category)
 		m.declaration = aLocation;
 	}
 }
-- (void)setLocation:(SCKSourceLocation *)l
-          forGlobal:(const char *)name
-           withType:(const char *)type
-         isFunction:(BOOL)isFunction
-       isDefinition:(BOOL)isDefinition
-{
-	NSMutableDictionary *dict = isFunction ? functions : globals;
-	NSString *symbol = [NSString stringWithUTF8String:name];
 
-	SCKTypedProgramComponent *global = [dict objectForKey:symbol];
+- (void) setLocation:(SCKSourceLocation*)l
+           forGlobal:(const char*)name
+            withType:(const char*)type
+          isFunction:(BOOL)isFunction
+        isDefinition:(BOOL)isDefinition        {
+	NSMutableDictionary *dict = isFunction ? functions : globals;
+	NSString *symbol = @(name);
+
+	SCKTypedProgramComponent *global = dict[symbol];
 	SCKTypedProgramComponent *g = nil;
 	if (nil == global)
 	{
 		g = isFunction ? [SCKFunction new] : [SCKGlobal new];
 		global = g;
 		global.name = symbol;
-		[global setTypeEncoding:[NSString stringWithUTF8String:type]];
+		[global setTypeEncoding:@(type)];
 	}
     
 	if (isDefinition)
@@ -227,11 +176,10 @@ static NSString *classNameFromCategory(CXCursor category)
 		global.declaration = l;
 	}
 
-	[dict setObject:global forKey:symbol];
+	dict[symbol] = global;
 }
 
-- (void)rebuildIndex
-{
+- (void) rebuildIndex {
 	if (0 == translationUnit)
     {
         return;
@@ -251,8 +199,8 @@ static NSString *classNameFromCategory(CXCursor category)
                         //clang_visitChildren((parent), findClass, NULL);
                         SCKSourceLocation *l = [[SCKSourceLocation alloc] initWithClangSourceLocation:clang_getCursorLocation(cursor)];
                         [self setLocation:l
-                                forMethod:[NSString stringWithUTF8String:methodName]
-                                  inClass:[NSString stringWithUTF8String:className]
+                                forMethod:@(methodName)
+                                  inClass:@(className)
                                  category:nil
                              isDefinition:clang_isCursorDefinition(cursor)];
                     }
@@ -269,9 +217,9 @@ static NSString *classNameFromCategory(CXCursor category)
                         NSString *className = classNameFromCategory(parent);
                         SCKSourceLocation *l = [[SCKSourceLocation alloc] initWithClangSourceLocation:clang_getCursorLocation(cursor)];
                         [self setLocation:l
-                                forMethod:[NSString stringWithUTF8String:methodName]
+                                forMethod:@(methodName)
                                   inClass:className
-                                 category:[NSString stringWithUTF8String:categoryName]
+                                 category:@(categoryName)
                              isDefinition:clang_isCursorDefinition(cursor)];
                     }
                     return CXChildVisit_Continue;
@@ -293,11 +241,13 @@ static NSString *classNameFromCategory(CXCursor category)
                 }
                 break;
             }
+//#pragma clang diagnostic push
+//#pragma clang diagnostic ignored "-Wprotocol"
             case CXCursor_EnumDecl: {
                 SCOPED_STR(enumName, clang_getCursorSpelling(cursor));
                 SCOPED_STR(type, clang_getDeclObjCTypeEncoding(cursor));
-                NSString *name = [NSString stringWithUTF8String:enumName];
-                SCKEnumeration *e = [enumerations objectForKey:name];
+                NSString *name = @(enumName);
+                SCKEnumeration *e = enumerations[name];
                 
                 __block BOOL foundType;
                 if (e == nil)
@@ -319,32 +269,32 @@ static NSString *classNameFromCategory(CXCursor category)
                         {
                             SCOPED_STR(type, clang_getDeclObjCTypeEncoding(enumCursor));
                             foundType = YES;
-                            e.typeEncoding = [NSString stringWithUTF8String:type];
+                            e.typeEncoding = @(type);
                         }
                         SCOPED_STR(valName, clang_getCursorSpelling(enumCursor));
-                        NSString *vName = [NSString stringWithUTF8String:valName];
+                        NSString *vName = @(valName);
                         
-                        SCKEnumerationValue *v = [e.values objectForKey:vName];
+                        SCKEnumerationValue *v = (e.values)[vName];
                         if (nil == v)
                         {
                             v = [SCKEnumerationValue new];
                             v.name = vName;
                             v.declaration = [[SCKSourceLocation alloc] initWithClangSourceLocation:clang_getCursorLocation(enumCursor)];
                             v.longLongValue = clang_getEnumConstantDeclValue(enumCursor);
-                            [e.values setObject:v forKey:vName];
+                            (e.values)[vName] = v;
                         }
                         
-                        SCKEnumerationValue *ev = [enumerationValues objectForKey:vName];
+                        SCKEnumerationValue *ev = enumerationValues[vName];
                         if (ev)
                         {
                             if (ev.longLongValue != v.longLongValue)
                             {
-                                [enumerationValues setObject:[NSMutableArray arrayWithObjects:v, ev, nil] forKey:vName];
+                                enumerationValues[vName] = [NSMutableArray arrayWithObjects:v, ev, nil];
                             }
                         }
                         else
                         {
-                            [enumerationValues setObject:v forKey:vName];
+                            enumerationValues[vName] = v;
                         }
                     }
                     return CXChildVisit_Continue;
@@ -356,25 +306,7 @@ static NSString *classNameFromCategory(CXCursor category)
     });
 }
 
-- (id)initUsingIndex:(SCKIndex *)anIndex
-{
-    self = [super init];
-    if (self)
-    {
-        idx = (SCKClangIndex*)anIndex;
-        NSAssert([idx isKindOfClass:[SCKClangIndex class]], @"Initializing SCKClangSourceFile with incorrect kind of index");
-        args = [idx.defaultArguments mutableCopy];
-        classes = [NSMutableDictionary new];
-        functions = [NSMutableDictionary new];
-        globals = [NSMutableDictionary new];
-        enumerations = [NSMutableDictionary new];
-        enumerationValues = [NSMutableDictionary new];
-    }
-	return self;
-}
-
-- (void)addIncludePath:(NSString *)includePath
-{
+- (void) addIncludePath:(NSString*)includePath {
 	[args addObject:[NSString stringWithFormat:@"-I%@", includePath]];
 	// After we've added an include path, we may change how the file is parsed,
 	// so parse it again, if required
@@ -385,30 +317,24 @@ static NSString *classNameFromCategory(CXCursor category)
 		[self reparse];
 	}
 }
-
-- (void)dealloc
-{
+- (void) dealloc {
 	if (NULL != translationUnit)
 	{
 		clang_disposeTranslationUnit(translationUnit);
 	}
 }
-
-- (void)reparse
-{
-	const char *fn = [fileName UTF8String];
-	struct CXUnsavedFile unsaved[] = {
-		{fn, [[source string] UTF8String], [source length]},
-		{NULL, NULL, 0}
-    };
+- (void) reparse {
+	const char *fn = self.fileName.UTF8String;
+	struct CXUnsavedFile unsaved[] = {{fn, self.source.string.UTF8String, self.source.length},
+                                    {NULL, NULL, 0}};
     
-	int unsavedCount = (source == nil) ? 0 : 1;
+	int unsavedCount = !!self.source;
     
 	const char *mainFile = fn;
-	if ([@"h" isEqualToString:[fileName pathExtension]])
+	if ([@"h" isEqualToString:self.fileName.pathExtension])
 	{
 		unsaved[unsavedCount].Filename = "/tmp/foo.m";
-		unsaved[unsavedCount].Contents = [[NSString stringWithFormat:@"#import \"%@\"\n", fileName] UTF8String];
+		unsaved[unsavedCount].Contents = [NSString stringWithFormat:@"#import \"%@\"\n", self.fileName].UTF8String;
 		unsaved[unsavedCount].Length = strlen(unsaved[unsavedCount].Contents);
 		mainFile = unsaved[unsavedCount].Filename;
 		unsavedCount++;
@@ -444,16 +370,12 @@ static NSString *classNameFromCategory(CXCursor category)
 	}
 	[self rebuildIndex];
 }
-
-- (void)lexicalHighlightFile
-{
+- (void) lexicalHighlightFile {
 	CXSourceLocation start = clang_getLocation(translationUnit, file, 1, 1);
-	CXSourceLocation end = clang_getLocationForOffset(translationUnit, file, (unsigned int)[source length]);
+	CXSourceLocation end = clang_getLocationForOffset(translationUnit, file, (unsigned int)self.source.length);
 	[self highlightRange:clang_getRange(start, end) syntax:NO];
 }
-
-- (void)highlightRange:(CXSourceRange)r syntax:(BOOL)highightSyntax
-{
+- (void) highlightRange:(CXSourceRange)r syntax:(BOOL)highightSyntax {
 	NSString *TokenTypes[] = {
         SCKTextTokenTypePunctuation,
         SCKTextTokenTypeKeyword,
@@ -487,7 +409,7 @@ static NSString *classNameFromCategory(CXCursor category)
 			NSRange range = NSRangeFromCXSourceRange(sr);
 			if (range.location > 0)
 			{
-				if ([[source string] characterAtIndex:range.location - 1] == '@')
+				if ([self.source.string characterAtIndex:range.location - 1] == '@')
 				{
 					range.location--;
 					range.length++;
@@ -526,83 +448,65 @@ static NSString *classNameFromCategory(CXCursor category)
                 
 				if (nil != type)
 				{
-					[source addAttribute:kSCKTextSemanticType
+					[self.source addAttribute:kSCKTextSemanticType
 								   value:type
 								   range:range];
 				}
 			}
-			[source addAttribute:kSCKTextTokenType
+			[self.source addAttribute:kSCKTextTokenType
 			               value:TokenTypes[clang_getTokenKind(tokens[i])]
 			               range:range];
 		}
-        
 		clang_disposeTokens(translationUnit, tokens, tokenCount);
 		free(cursors);
 	}
 }
-
-- (void)syntaxHighlightRange:(NSRange)r
-{
-	CXSourceLocation start = clang_getLocationForOffset(translationUnit, file, (unsigned int)r.location);
-	CXSourceLocation end = clang_getLocationForOffset(translationUnit, file, (unsigned int)r.location + (unsigned int)r.length);
+- (void) syntaxHighlightRange:(NSRange)r  {
+	CXSourceLocation start  = clang_getLocationForOffset(translationUnit, file, (unsigned int)r.location);
+	CXSourceLocation end    = clang_getLocationForOffset(translationUnit, file, (unsigned int)r.location + (unsigned int)r.length);
 	[self highlightRange:clang_getRange(start, end) syntax:YES];
 }
-
-- (void)syntaxHighlightFile
-{
-	[self syntaxHighlightRange:NSMakeRange(0, [source length])];
+- (void) syntaxHighlightFile  {
+	[self syntaxHighlightRange:NSMakeRange(0,self.source.length)];
 }
+- (void) collectDiagnostics   {
 
-- (void)collectDiagnostics
-{
-	unsigned diagnosticCount = clang_getNumDiagnostics(translationUnit);
-	unsigned opts = clang_defaultDiagnosticDisplayOptions();
+	unsigned diagnosticCount  = clang_getNumDiagnostics(translationUnit);
+	unsigned __unused opts    = clang_defaultDiagnosticDisplayOptions();
     
-	for (unsigned i=0 ; i<diagnosticCount ; i++)
-	{
-		CXDiagnostic d = clang_getDiagnostic(translationUnit, i);
-		unsigned s = clang_getDiagnosticSeverity(d);
-		if (s > 0)
-		{
-			CXString str = clang_getDiagnosticSpelling(d);
-			CXSourceLocation loc = clang_getDiagnosticLocation(d);
-			unsigned rangeCount = clang_getDiagnosticNumRanges(d);
-            
-			if (rangeCount == 0) {
-				//FIXME: probably somewhat redundant
-				SCKSourceLocation* sloc = [[SCKSourceLocation alloc] initWithClangSourceLocation:loc];
-				NSDictionary *attr = @{kSCKDiagnosticSeverity: @(s),
-                                       kSCKDiagnosticText: [NSString stringWithUTF8String:clang_getCString(str)]};
-                
-				NSRange r = NSMakeRange(sloc->offset, 1);
-                
-				[source addAttribute:kSCKDiagnostic
-				               value:attr
-				               range:r];
-			}
-			for (unsigned j=0 ; j<rangeCount ; j++)
-			{
-				NSRange r = NSRangeFromCXSourceRange(clang_getDiagnosticRange(d, j));
-				NSDictionary *attr = @{kSCKDiagnosticSeverity: @(s),
-                                       kSCKDiagnosticText: [NSString stringWithUTF8String:clang_getCString(str)]};
-                
-				[source addAttribute:kSCKDiagnostic
-				               value:attr
-				               range:r];
-			}
-			clang_disposeString(str);
-		}
+	for (unsigned i=0 ; i<diagnosticCount ; i++) 	{
+  
+		CXDiagnostic d  = clang_getDiagnostic(translationUnit, i);
+		unsigned s      = clang_getDiagnosticSeverity(d);
+
+		if (!s) continue;
+    CXString str          = clang_getDiagnosticSpelling(d);
+    CXSourceLocation loc  = clang_getDiagnosticLocation(d);
+    unsigned rangeCount   = clang_getDiagnosticNumRanges(d);
+          
+    if (rangeCount == 0) {    //FIXME: probably somewhat redundant
+    
+      SCKSourceLocation* sloc = [SCKSourceLocation.alloc initWithClangSourceLocation:loc];
+      [self.source addAttribute:kSCKDiagnostic
+                     value:@{kSCKDiagnosticSeverity: @(s),
+                                     kSCKDiagnosticText: @(clang_getCString(str))}
+                     range:NSMakeRange(sloc.offset, 1)];
+    }
+    for (unsigned j=0 ; j<rangeCount ; j++)
+      [self.source addAttribute:kSCKDiagnostic 
+                          value:@{kSCKDiagnosticSeverity: @(s), //kSCKDiagnostic
+                                      kSCKDiagnosticText: @(clang_getCString(str))} 
+                          range:NSRangeFromCXSourceRange(clang_getDiagnosticRange(d, j))];
+    clang_disposeString(str);
 	}
 }
-
-- (SCKCodeCompletionResult*)completeAtLocation:(NSUInteger)location
-{
+- (SCKCodeCompletionResult*) completeAtLocation:(NSUInteger)location {
 	SCKCodeCompletionResult *result = [SCKCodeCompletionResult new];
 
 	struct CXUnsavedFile unsavedFile;
-	unsavedFile.Filename = [fileName UTF8String];
-	unsavedFile.Contents = [[source string] UTF8String];
-	unsavedFile.Length = [[source string] length];
+	unsavedFile.Filename = self.fileName.UTF8String;
+	unsavedFile.Contents = self.source.string.UTF8String;
+	unsavedFile.Length = self.source.string.length;
 
 	CXSourceLocation l = clang_getLocationForOffset(translationUnit, file, (unsigned)location);
 	unsigned line, column;
@@ -613,7 +517,7 @@ static NSString *classNameFromCategory(CXCursor category)
 			CXCompletionContext_AnyValue |
 			CXCompletionContext_ObjCInterface;
 
-	CXCodeCompleteResults *cr = clang_codeCompleteAt(translationUnit, [fileName UTF8String], line, column, &unsavedFile, 1, options);
+	CXCodeCompleteResults *cr = clang_codeCompleteAt(translationUnit, self.fileName.UTF8String, line, column, &unsavedFile, 1, options);
 	clock_t c2 = clock();
 	NSLog(@"Complete time: %f\n", 
 	((double)c2 - (double)c1) / (double)CLOCKS_PER_SEC);

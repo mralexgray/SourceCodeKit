@@ -63,8 +63,8 @@
     if (self)
     {
         subclasses = [NSMutableArray new];
-        categories = [NSMutableDictionary new];
-        methods = [NSMutableDictionary new];
+        categories = NSMutableDictionary.new;
+        methods = NSMutableDictionary.new;
         ivars = [NSMutableArray new];
     }
 	return self;
@@ -72,7 +72,7 @@
 
 - (id)initWithClass:(Class)cls
 {
-	self = [super initWithName:[NSString stringWithUTF8String:class_getName(cls)]];
+	self = [super initWithName:@(class_getName(cls))];
     if (self)
     {
         unsigned int count;
@@ -81,8 +81,8 @@
         for (unsigned int i = 0 ; i < count; i++)
         {
             SCKIvar *ivar = [SCKIvar new];
-            ivar.name = [NSString stringWithUTF8String:ivar_getName(ivarList[i])];
-            [ivar setTypeEncoding:[NSString stringWithUTF8String:ivar_getTypeEncoding(ivarList[i])]];
+            ivar.name = @(ivar_getName(ivarList[i]));
+            [ivar setTypeEncoding:@(ivar_getTypeEncoding(ivarList[i]))];
             ivar.parent = self;
             [ivars addObject:ivar];
         }
@@ -95,10 +95,10 @@
         for (unsigned int i = 0 ; i < count; i++)
         {
             SCKMethod *method = [SCKMethod new];
-            method.name = [NSString stringWithUTF8String:sel_getName(method_getName(methodList[i]))];
-            [method setTypeEncoding:[NSString stringWithUTF8String:method_getTypeEncoding(methodList[i])]];
+            method.name = @(sel_getName(method_getName(methodList[i])));
+            [method setTypeEncoding:@(method_getTypeEncoding(methodList[i]))];
             method.parent = self;
-            [methods setObject:method forKey:method.name];
+            methods[method.name] = method;
         }
         if (count>0)
         {
@@ -136,7 +136,7 @@
 	self = [super init];
     if (self)
     {
-        methods = [NSMutableDictionary new];
+        methods = NSMutableDictionary.new;
     }
 	return self;
 }

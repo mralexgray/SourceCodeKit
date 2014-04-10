@@ -1,71 +1,56 @@
+
 #import "SourceCodeKit.h"
-#import <Cocoa/Cocoa.h>
-#import <objc/runtime.h>
 
-/**
- * Mapping from source file extensions to SCKSourceFile subclasses.
- */
-static NSDictionary *fileClasses;
+static NSDictionary *fileClasses; /*! Mapping from source file extensions to SCKSourceFile subclasses. */
 
-@interface SCKClangIndex : NSObject
-@end
+@interface SCKClangIndex : NSObject @end
 
 @implementation SCKSourceCollection
 
 @synthesize bundles;
 
-+ (void)initialize
-{
++ (void)initialize {  	NSMutableDictionary *d = @{}.mutableCopy;
+
 	Class clang = NSClassFromString(@"SCKClangSourceFile");
-	fileClasses = @{@"m": clang,
-                    @"cc": clang,
-                    @"c": clang,
-                    @"h": clang,
-                    @"cpp": clang};
+
+  d[@"m"] = d[@"cc"] = d[@"c"] = d[@"h"] = d[@"cpp"] = clang; fileClasses = d.copy;
 }
 
-- (id)init
-{
-	self = [super init];
-	indexes = [NSMutableDictionary new];
+- (id)init  {
+
+	self            = super.init;
+	indexes         = NSMutableDictionary.new;
 	// A single clang index instance for all of the clang-supported file types
-	id index = [SCKClangIndex new];
-	[indexes setObject:index forKey:@"m"];
-	[indexes setObject:index forKey:@"c"];
-	[indexes setObject:index forKey:@"h"];
-	[indexes setObject:index forKey:@"cpp"];
-	[indexes setObject:index forKey:@"cc"];
-	files = [NSMutableDictionary new];
-	bundles = [NSMutableDictionary new];
-	bundleClasses = [NSMutableDictionary new];
-	int count = objc_getClassList(NULL, 0);
+	id index        = SCKClangIndex.new;
+	indexes[@"m"]   = indexes[@"c"]   = 
+  indexes[@"h"]   = indexes[@"cpp"] =
+	indexes[@"cc"]  = index;
+	files           = NSMutableDictionary.new;
+	bundles         = NSMutableDictionary.new;
+	bundleClasses   = NSMutableDictionary.new;
+	int count       = objc_getClassList(NULL, 0);
 	Class *classList = (__unsafe_unretained Class *)calloc(sizeof(Class), count);
 	objc_getClassList(classList, count);
 	for (int i = 0 ; i < count; i++)
 	{
-		SCKClass *cls = [[SCKClass alloc] initWithClass:classList[i]];
-		[bundleClasses setObject:cls forKey:[cls name]];
-		NSBundle *b = [NSBundle bundleForClass:classList[i]];
-		if (nil == b)
-		{
-			continue;
-		}
-		SCKBundle *bundle = [bundles objectForKey:[b bundlePath]];
-		if (nil  == bundle)
-		{
-			bundle = [SCKBundle new];
-			bundle.name = [b bundlePath];
-			[bundles setObject:bundle forKey:[b bundlePath]];
-		}
-		[bundle.classes addObject:cls];
+		SCKClass *cls           = [SCKClass.alloc initWithClass:classList[i]];
+		bundleClasses[cls.name] = cls;
+
+		NSBundle *b; if (!(b = [NSBundle bundleForClass:classList[i]])) continue;
+    
+    [((SCKBundle*)bundles[b.bundlePath] ?: ({  SCKBundle *bndl = SCKBundle.new;
+    
+     bndl.name = b.bundlePath; (SCKBundle *)(bundles[b.bundlePath] = bndl);
+
+    })).classes addObject:cls];
 	}
-	free(classList);
-	return self;
+  
+	free(classList); return self;
 }
 
 - (NSMutableDictionary*)programComponentsFromFilesForKey:(NSString *)key
 {
-	NSMutableDictionary *components = [NSMutableDictionary new];
+	NSMutableDictionary *components = NSMutableDictionary.new;
 	for (SCKSourceFile *file in [files objectEnumerator])
 	{
 		[components addEntriesFromDictionary:[file valueForKey:key]];
@@ -102,33 +87,20 @@ static NSDictionary *fileClasses;
 
 - (SCKIndex*)indexForFileExtension:(NSString *)extension
 {
-	return [indexes objectForKey:extension];
+	return indexes[extension];
 }
 
 - (SCKSourceFile*)sourceFileForPath:(NSString *)aPath
 {
 	NSString *path = [aPath stringByStandardizingPath];
-
-	SCKSourceFile *file = [files objectForKey:path];
-	if (nil != file)
-	{
-		return file;
-	}
-
-	NSString *extension = [path pathExtension];
-	file = [[fileClasses objectForKey:extension] fileUsingIndex: [indexes objectForKey:extension]];
-	file.fileName = path;
-	file.collection = self;
-	[file reparse];
-	if (nil != file)
-	{
-		[files setObject:file forKey:path];
-	}
-	else
-	{
-		NSLog(@"Failed to load %@", path);
-	}
-	return file;
+  
+  return files[path] ?: ({  	NSString *extension = path.pathExtension;
+  
+    SCKSourceFile *file = [fileClasses[extension] fileUsingIndex: indexes[extension]];
+    file.fileName   = path;
+    file.collection = self;
+    [file reparse];
+    !!file ? files[path] = file : NSLog(@"Failed to load %@", path); file; });
 }
 
 @end

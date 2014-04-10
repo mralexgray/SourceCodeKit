@@ -1,28 +1,21 @@
-#import "SCKSyntaxHighlighter.h"
-#import <Cocoa/Cocoa.h>
+
 #import "SCKTextTypes.h"
+#import "SCKSyntaxHighlighter.h"
 #include <time.h>
 
 static NSDictionary *noAttributes;
 
-@implementation SCKSyntaxHighlighter
+@implementation SCKSyntaxHighlighter @synthesize tokenAttributes, semanticAttributes;
 
-@synthesize tokenAttributes, semanticAttributes;
-
-+ (void)initialize
-{
-    static dispatch_once_t once = 0L;
-    dispatch_once(&once, ^{
-        noAttributes = [NSDictionary dictionary];
-    });
++ (void)initialize { static dispatch_once_t once = 0L;
+    dispatch_once(&once, ^{ noAttributes = NSDictionary.new; });
 }
 
-- (id)init
-{
+- (id)init {
 	self = [super init];
-	NSDictionary *comment = @{NSForegroundColorAttributeName: [NSColor grayColor]};
-	NSDictionary *keyword = @{NSForegroundColorAttributeName: [NSColor redColor]};
-	NSDictionary *literal = @{NSForegroundColorAttributeName: [NSColor redColor]};
+	NSDictionary *comment = @{NSForegroundColorAttributeName: [NSColor grayColor]},
+               *keyword = @{NSForegroundColorAttributeName: [NSColor redColor]},
+               *literal = @{NSForegroundColorAttributeName: [NSColor redColor]};
 	tokenAttributes = [@{
                        SCKTextTokenTypeComment: comment,
                        SCKTextTokenTypePunctuation: noAttributes,
@@ -54,41 +47,27 @@ static NSDictionary *noAttributes;
 		                                        inRange:NSMakeRange(i, end-i)];
 		i = r.location + r.length;
         
-		NSString *token = [attrs objectForKey:kSCKTextTokenType];
-		NSString *semantic = [attrs objectForKey:kSCKTextSemanticType];
-		NSDictionary *diagnostic = [attrs objectForKey:kSCKDiagnostic];
+		NSString *token = attrs[kSCKTextTokenType];
+		NSString *semantic = attrs[kSCKTextSemanticType];
+		NSDictionary *diagnostic = attrs[kSCKDiagnostic];
         
 		// Skip ranges that have attributes other than semantic markup
 		if ((nil == semantic) && (nil == token)) continue;
-		if (semantic == SCKTextTypePreprocessorDirective)
-		{
-			attrs = [semanticAttributes objectForKey: semantic];
-		}
-		else if (token == nil || token != SCKTextTokenTypeIdentifier)
-		{
-			attrs = [tokenAttributes objectForKey: token];
-		}
-		else
-		{
-			NSString *semantic = [attrs objectForKey:kSCKTextSemanticType];
-			attrs = [semanticAttributes objectForKey:semantic];
-		}
-        
-		if (nil == attrs)
-		{
-			attrs = noAttributes;
-		}
-        
+		attrs = 
+    semantic == SCKTextTypePreprocessorDirective  ? semanticAttributes[semantic] :
+    !token || token != SCKTextTokenTypeIdentifier ?    tokenAttributes[token] :
+                                                    semanticAttributes[kSCKTextSemanticType]
+                                                  ?:      noAttributes;
 		[source setAttributes:attrs range:r];
         
 		// Re-apply the diagnostic
-		if (nil != diagnostic)
-		{
+		if (!!diagnostic)	{
+    
 			[source addAttribute:NSToolTipAttributeName
-			               value:[diagnostic objectForKey: kSCKDiagnosticText]
+			               value:diagnostic[kSCKDiagnosticText]
 			               range:r];
 			[source addAttribute:NSUnderlineStyleAttributeName
-                           value:[NSNumber numberWithInt: NSSingleUnderlineStyle]
+                           value:@(NSSingleUnderlineStyle)
                            range:r];
 			[source addAttribute:NSUnderlineColorAttributeName
 			               value:[NSColor redColor]
